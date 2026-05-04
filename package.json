@@ -1,0 +1,20 @@
+{
+  "name": "claudio",
+  "version": "0.1.0",
+  "description": "Personal AI DJ radio station",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.92.0",
+    "edge-tts-node": "^1.0.4",
+    "express": "^4.19.2",
+    "lowdb": "^7.0.1",
+    "msedge-tts": "^2.0.5",
+    "NeteaseCloudMusicApi": "^4.20.0",
+    "ws": "^8.17.1"
+  }
+}
