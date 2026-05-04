@@ -9,7 +9,12 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const cacheDir = join(root, 'public/tts')
 mkdirSync(cacheDir, { recursive: true })
 
-const cfg = JSON.parse(await readFile(join(root, 'user/fish-config.json'), 'utf-8'))
+let cfg = { provider: 'edge', edge: { voiceId: 'zh-CN-XiaoxiaoNeural' } }
+try {
+  cfg = JSON.parse(await readFile(join(root, 'user/fish-config.json'), 'utf-8'))
+} catch {
+  console.log('  未找到 TTS 配置，使用 Edge TTS（免费）')
+}
 
 async function synthMinimax(text) {
   const mm = cfg.minimax
