@@ -455,7 +455,7 @@
   }
 
   // ── WebSocket ──────────────────────────────────────────────
-  const ws = new WebSocket(`ws://${location.host}`)
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`)
   ws.onopen  = () => { $('dot').classList.add('on'); $('status-text').textContent = 'live' }
   ws.onclose = () => { $('dot').classList.remove('on'); $('status-text').textContent = 'offline' }
   ws.onmessage = e => {
