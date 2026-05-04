@@ -54,7 +54,7 @@ export async function askClaudio(userMessage, history = []) {
   const prompt = await buildPrompt(userMessage, history)
 
   const msg = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }]
   })
