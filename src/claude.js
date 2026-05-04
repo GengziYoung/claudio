@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { readFile } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
@@ -14,7 +14,7 @@ try {
   }
 } catch {}
 
-const client = new Anthropic({
+const client = new OpenAI({
   apiKey: process.env.ANTHROPIC_API_KEY,
   baseURL: process.env.ANTHROPIC_BASE_URL
 })
@@ -53,13 +53,13 @@ ${userMessage}
 export async function askClaudio(userMessage, history = []) {
   const prompt = await buildPrompt(userMessage, history)
 
-  const msg = await client.messages.create({
+  const completion = await client.chat.completions.create({
     model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
     max_tokens: 1024,
     messages: [{ role: 'user', content: prompt }]
   })
 
-  const raw = msg.content[0].text
+  const raw = completion.choices[0].message.content
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
     .replace(/```\s*$/, '')

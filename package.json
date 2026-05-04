@@ -9,7 +9,7 @@
     "dev": "node --watch src/server.js"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.92.0",
+    "openai": "^4.98.0",
     "edge-tts-node": "^1.0.4",
     "express": "^4.19.2",
     "lowdb": "^7.0.1",
