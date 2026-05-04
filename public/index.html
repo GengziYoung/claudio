@@ -269,19 +269,37 @@
       color: #4a2550;
     }
 
-    progress {
+    input[type=range]#progress {
       flex: 1;
       height: 2px;
       appearance: none;
       background: #2a1040;
       border-radius: 1px;
       cursor: pointer;
+      outline: none;
     }
-    progress::-webkit-progress-bar { background: #2a1040; border-radius: 1px; }
-    progress::-webkit-progress-value {
-      background: #c42b65;
+    input[type=range]#progress::-webkit-slider-runnable-track {
+      height: 2px;
       border-radius: 1px;
-      box-shadow: 0 0 5px rgba(196, 43, 101, 0.7);
+    }
+    input[type=range]#progress::-webkit-slider-thumb {
+      appearance: none;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #c42b65;
+      margin-top: -4px;
+      box-shadow: 0 0 6px rgba(196, 43, 101, 0.8);
+      cursor: pointer;
+    }
+    input[type=range]#progress::-moz-range-thumb {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #c42b65;
+      border: none;
+      box-shadow: 0 0 6px rgba(196, 43, 101, 0.8);
+      cursor: pointer;
     }
 
     .status-line {
@@ -500,7 +518,7 @@
     </div>
     <div class="progress-wrap">
       <span id="time-cur">0:00</span>
-      <progress id="progress" value="0" max="100"></progress>
+      <input type="range" id="progress" value="0" min="0" max="100" step="0.1">
       <span id="time-total">0:00</span>
     </div>
     <div class="status-line">
@@ -711,12 +729,30 @@
   })
 
   // ── 进度条 ───────────────────────────────────────────────────
+  const progressEl = $('progress')
+
+  function updateProgressFill(val) {
+    progressEl.style.background = `linear-gradient(to right, #c42b65 ${val}%, #2a1040 ${val}%)`
+  }
+
   player.addEventListener('timeupdate', () => {
     if (!player.duration) return
-    $('progress').value = (player.currentTime / player.duration) * 100
+    const pct = (player.currentTime / player.duration) * 100
+    progressEl.value = pct
+    updateProgressFill(pct)
     $('time-cur').textContent = fmt(player.currentTime)
     $('time-total').textContent = fmt(player.duration)
     syncLyrics(player.currentTime)
+  })
+
+  progressEl.addEventListener('input', () => {
+    updateProgressFill(progressEl.value)
+  })
+
+  progressEl.addEventListener('change', () => {
+    if (player.duration) {
+      player.currentTime = (progressEl.value / 100) * player.duration
+    }
   })
 
   function fmt(s) {
