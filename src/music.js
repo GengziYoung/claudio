@@ -13,7 +13,18 @@ try {
   savedCookie = data.cookie || ''
   if (savedCookie) console.log('✓ 已加载登录 cookie，将以账号身份获取播放链接')
 } catch {
-  console.log('  未找到 cookie，以游客模式获取播放链接（部分歌曲只有 30s）')
+  // 尝试从环境变量读取
+  if (process.env.NETEASE_COOKIE) {
+    savedCookie = process.env.NETEASE_COOKIE
+    console.log('✓ 已从环境变量加载登录 cookie')
+  } else {
+    console.log('  未找到 cookie，以游客模式获取播放链接（部分歌曲只有 30s）')
+  }
+}
+
+export function reloadCookie(cookie) {
+  savedCookie = cookie
+  console.log('✓ 已更新登录 cookie')
 }
 
 export async function searchSongs(keyword, limit = 8) {

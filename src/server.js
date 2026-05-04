@@ -3,7 +3,10 @@ import { WebSocketServer } from 'ws'
 import { createServer } from 'http'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
-import { searchSongs, getSongUrl, getLyric } from './music.js'
+import { writeFile, mkdir } from 'fs/promises'
+import ncmApi from 'NeteaseCloudMusicApi'
+const { login_qr_key, login_qr_create, login_qr_check } = ncmApi
+import { searchSongs, getSongUrl, getLyric, reloadCookie } from './music.js'
 import { askClaudio } from './claude.js'
 import { synthesize } from './tts.js'
 import { state } from './state.js'
@@ -107,6 +110,74 @@ app.post('/api/chat', async (req, res) => {
   } catch (e) {
     console.error('Claude 出错:', e.message)
     res.json({ reply: '思考中出了点问题，稍后再试…' })
+  }
+})
+
+// ── 网易云扫码登录 ──────────────────────────────────────────────
+app.get('/admin/login', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>网易云登录</title>
+<style>body{font-family:sans-serif;text-align:center;padding:40px;background:#111;color:#eee}
+img{border-radius:12px}#cookie{word-break:break-all;font-size:11px;color:#aaa;margin-top:16px;padding:12px;background:#222;border-radius:8px;display:none}</style>
+</head><body>
+<h2>🎵 网易云扫码登录</h2>
+<div id="qr"><p>生成中...</p></div>
+<p id="status">等待扫描...</p>
+<pre id="cookie"></pre>
+<script>
+let key
+async function init() {
+  document.getElementById('status').textContent = '生成二维码...'
+  const r = await fetch('/admin/qr/new')
+  const d = await r.json()
+  key = d.key
+  document.getElementById('qr').innerHTML = '<img src="' + d.img + '" width="200">'
+  document.getElementById('status').textContent = '请用网易云 App 扫码'
+  poll()
+}
+async function poll() {
+  const r = await fetch('/admin/qr/check?key=' + key)
+  const d = await r.json()
+  document.getElementById('status').textContent = d.message
+  if (d.code === 803) {
+    const el = document.getElementById('cookie')
+    el.style.display = 'block'
+    el.textContent = '登录成功！\\n\\n请复制以下内容，添加到 Railway Variables 中\\n名称：NETEASE_COOKIE\\n值：\\n' + d.cookie
+    return
+  }
+  if (d.code === 800) { init(); return; }
+  setTimeout(poll, 2000)
+}
+init()
+</script></body></html>`)
+})
+
+app.get('/admin/qr/new', async (req, res) => {
+  try {
+    const keyRes = await login_qr_key({ timestamp: Date.now() })
+    const key = keyRes.body.data.unikey
+    const qrRes = await login_qr_create({ key, qrimg: true, timestamp: Date.now() })
+    res.json({ key, img: qrRes.body.data.qrimg })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/admin/qr/check', async (req, res) => {
+  try {
+    const { key } = req.query
+    const checkRes = await login_qr_check({ key, timestamp: Date.now() })
+    const code = checkRes.body.code
+    const messages = { 800: '二维码已过期，重新生成中...', 801: '等待扫描...', 802: '已扫描，请在手机上确认' , 803: '✓ 登录成功！' }
+    if (code === 803) {
+      const cookie = checkRes.body.cookie
+      await mkdir(join(__dirname, '../user'), { recursive: true })
+      await writeFile(join(__dirname, '../user/cookies.json'), JSON.stringify({ cookie }, null, 2))
+      reloadCookie(cookie)
+    }
+    res.json({ code, message: messages[code] || '处理中...', cookie: code === 803 ? checkRes.body.cookie : undefined })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
   }
 })
 
