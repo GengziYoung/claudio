@@ -26,7 +26,7 @@ async function readOptional(path) {
 
 async function buildPrompt(userMessage, history = []) {
   const persona = await readOptional(join(root, 'prompts/dj-persona.md'))
-  const taste   = await readOptional(join(root, 'user/taste.md'))
+  const taste   = await readOptional(join(root, 'prompts/taste.md'))
   const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
 
   const historyText = history.length
