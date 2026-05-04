@@ -6,7 +6,7 @@ import { dirname, join } from 'path'
 import { writeFile, mkdir } from 'fs/promises'
 import ncmApi from 'NeteaseCloudMusicApi'
 const { login_qr_key, login_qr_create, login_qr_check } = ncmApi
-import { searchSongs, getSongUrl, getLyric, reloadCookie } from './music.js'
+import { searchSongs, getSongUrl, getLyric, reloadCookie, getUserTaste } from './music.js'
 import { askClaudio } from './claude.js'
 import { synthesize } from './tts.js'
 import { state } from './state.js'
@@ -37,7 +37,7 @@ async function resolvePlaylist(playList) {
   return results.filter(Boolean)
 }
 
-// 获取当前状态（重启后从磁盘恢复）
+// 获取当前状态
 app.get('/api/now', (req, res) => {
   res.json(state.getNowPlaying())
 })
@@ -53,10 +53,11 @@ app.get('/api/search', async (req, res) => {
   }
 })
 
-// 获取播放链接
+// 获取播放链接（支持用户自己的 cookie）
 app.get('/api/song/:id/url', async (req, res) => {
+  const userCookie = req.headers['x-ncm-cookie'] || ''
   try {
-    res.json({ url: await getSongUrl(req.params.id) })
+    res.json({ url: await getSongUrl(req.params.id, userCookie) })
   } catch (e) {
     res.status(500).json({ error: '获取链接失败' })
   }
@@ -79,15 +80,16 @@ app.post('/api/now', async (req, res) => {
   res.json({ ok: true })
 })
 
-// 聊天 — 调用 Claude，返回 DJ 回复并推送歌单
+// 聊天（支持用户品味和 cookie）
 app.post('/api/chat', async (req, res) => {
-  const { message } = req.body
+  const { message, userTaste } = req.body
+  const userCookie = req.headers['x-ncm-cookie'] || ''
   console.log('用户:', message)
 
   try {
     await state.pushHistory('user', message)
 
-    const dj = await askClaudio(message, state.getHistory())
+    const dj = await askClaudio(message, state.getHistory(), userTaste || '')
     console.log('Claudio:', JSON.stringify(dj))
 
     await state.pushHistory('assistant', dj.say)
@@ -95,11 +97,10 @@ app.post('/api/chat', async (req, res) => {
 
     broadcast({ type: 'dj', say: dj.say, segue: dj.segue })
 
-    // 并行：合成语音 + 搜歌，都好了再一起推给浏览器
     ;(async () => {
       console.log('歌单长度:', dj.play?.length ?? 0)
       const [ttsUrl, songs] = await Promise.all([
-        synthesize(dj.say).catch(e => { console.error('TTS 出错:', e.message, e.cause?.message ?? e.cause ?? ''); return null }),
+        synthesize(dj.say).catch(e => { console.error('TTS 出错:', e.message); return null }),
         dj.play?.length ? resolvePlaylist(dj.play).catch(e => { console.error('搜歌出错:', e.message); return [] }) : Promise.resolve([])
       ])
       console.log('djresponse → ttsUrl:', ttsUrl, '| songs:', songs.length)
@@ -113,14 +114,55 @@ app.post('/api/chat', async (req, res) => {
   }
 })
 
-// ── 网易云扫码登录 ──────────────────────────────────────────────
+// ── 用户登录：网易云扫码 ──────────────────────────────────────────
+app.get('/api/login/qr/new', async (req, res) => {
+  try {
+    const keyRes = await login_qr_key({ timestamp: Date.now() })
+    const key = keyRes.body.data.unikey
+    const qrRes = await login_qr_create({ key, qrimg: true, timestamp: Date.now() })
+    res.json({ key, img: qrRes.body.data.qrimg })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/login/qr/check', async (req, res) => {
+  try {
+    const { key } = req.query
+    const checkRes = await login_qr_check({ key, timestamp: Date.now() })
+    const code = checkRes.body.code
+    const messages = { 800: '二维码已过期', 801: '等待扫描…', 802: '已扫描，请在手机上确认', 803: '登录成功！' }
+    res.json({
+      code,
+      message: messages[code] || '处理中…',
+      cookie: code === 803 ? checkRes.body.cookie : undefined
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// 获取用户品味（登录后调用）
+app.get('/api/user/taste', async (req, res) => {
+  const cookie = req.headers['x-ncm-cookie'] || ''
+  if (!cookie) return res.status(401).json({ error: '未登录' })
+  try {
+    const taste = await getUserTaste(cookie)
+    res.json({ taste })
+  } catch (e) {
+    console.error('获取用户品味失败:', e.message)
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── 管理员登录（服务器全局 cookie）──────────────────────────────
 app.get('/admin/login', (req, res) => {
   res.send(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>网易云登录</title>
 <style>body{font-family:sans-serif;text-align:center;padding:40px;background:#111;color:#eee}
 img{border-radius:12px}#cookie{word-break:break-all;font-size:11px;color:#aaa;margin-top:16px;padding:12px;background:#222;border-radius:8px;display:none}</style>
 </head><body>
-<h2>🎵 网易云扫码登录</h2>
+<h2>🎵 网易云扫码登录（管理员）</h2>
 <div id="qr"><p>生成中...</p></div>
 <p id="status">等待扫描...</p>
 <pre id="cookie"></pre>
@@ -140,12 +182,11 @@ async function poll() {
   const d = await r.json()
   document.getElementById('status').textContent = d.message
   if (d.code === 803) {
-    const el = document.getElementById('cookie')
-    el.style.display = 'block'
-    el.textContent = '登录成功！\\n\\n请复制以下内容，添加到 Railway Variables 中\\n名称：NETEASE_COOKIE\\n值：\\n' + d.cookie
+    document.getElementById('cookie').style.display = 'block'
+    document.getElementById('cookie').textContent = '登录成功！Cookie 已保存到服务器。'
     return
   }
-  if (d.code === 800) { init(); return; }
+  if (d.code === 800) { init(); return }
   setTimeout(poll, 2000)
 }
 init()
@@ -168,7 +209,7 @@ app.get('/admin/qr/check', async (req, res) => {
     const { key } = req.query
     const checkRes = await login_qr_check({ key, timestamp: Date.now() })
     const code = checkRes.body.code
-    const messages = { 800: '二维码已过期，重新生成中...', 801: '等待扫描...', 802: '已扫描，请在手机上确认' , 803: '✓ 登录成功！' }
+    const messages = { 800: '二维码已过期，重新生成中...', 801: '等待扫描...', 802: '已扫描，请在手机上确认', 803: '✓ 登录成功！' }
     if (code === 803) {
       const cookie = checkRes.body.cookie
       await mkdir(join(__dirname, '../user'), { recursive: true })

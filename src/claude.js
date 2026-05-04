@@ -24,9 +24,9 @@ async function readOptional(path) {
   catch { return '' }
 }
 
-async function buildPrompt(userMessage, history = []) {
+async function buildPrompt(userMessage, history = [], userTaste = '') {
   const persona = await readOptional(join(root, 'prompts/dj-persona.md'))
-  const taste   = await readOptional(join(root, 'prompts/taste.md'))
+  const taste = userTaste || await readOptional(join(root, 'prompts/taste.md'))
   const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
 
   const historyText = history.length
@@ -50,8 +50,8 @@ ${userMessage}
 请返回 JSON：`
 }
 
-export async function askClaudio(userMessage, history = []) {
-  const prompt = await buildPrompt(userMessage, history)
+export async function askClaudio(userMessage, history = [], userTaste = '') {
+  const prompt = await buildPrompt(userMessage, history, userTaste)
 
   const completion = await client.chat.completions.create({
     model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
