@@ -19,11 +19,26 @@ const wss = new WebSocketServer({ server })
 app.use(express.json())
 app.use(express.static(join(__dirname, '../public')))
 
-function broadcast(data) {
-  const msg = JSON.stringify(data)
-  wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(msg)
-  })
+// session ID → WebSocket 连接
+const sessions = new Map()
+
+// session ID → 对话历史（内存，不持久化）
+const histories = new Map()
+
+function getHistory(sid) {
+  return histories.get(sid) || []
+}
+
+function pushHistory(sid, role, content) {
+  if (!histories.has(sid)) histories.set(sid, [])
+  const h = histories.get(sid)
+  h.push({ role, content, ts: Date.now() })
+  if (h.length > 40) h.splice(0, 2)
+}
+
+function sendToSession(sid, data) {
+  const ws = sessions.get(sid)
+  if (ws?.readyState === 1) ws.send(JSON.stringify(data))
 }
 
 async function resolvePlaylist(playList) {
@@ -80,31 +95,29 @@ app.post('/api/now', async (req, res) => {
   res.json({ ok: true })
 })
 
-// 聊天（支持用户品味和 cookie）
+// 聊天（每个 session 独立）
 app.post('/api/chat', async (req, res) => {
   const { message, userTaste } = req.body
+  const sid = req.headers['x-session-id'] || ''
   const userCookie = req.headers['x-ncm-cookie'] || ''
-  console.log('用户:', message)
+  console.log(`[${sid.slice(0,6)}] 用户: ${message}`)
 
   try {
-    await state.pushHistory('user', message)
+    pushHistory(sid, 'user', message)
 
-    const dj = await askClaudio(message, state.getHistory(), userTaste || '')
-    console.log('Claudio:', JSON.stringify(dj))
+    const dj = await askClaudio(message, getHistory(sid), userTaste || '')
+    console.log(`[${sid.slice(0,6)}] Claudio:`, JSON.stringify(dj))
 
-    await state.pushHistory('assistant', dj.say)
-    await state.setNowPlaying({ djSay: dj.say })
+    pushHistory(sid, 'assistant', dj.say)
 
-    broadcast({ type: 'dj', say: dj.say, segue: dj.segue })
+    sendToSession(sid, { type: 'dj', say: dj.say, segue: dj.segue })
 
     ;(async () => {
-      console.log('歌单长度:', dj.play?.length ?? 0)
       const [ttsUrl, songs] = await Promise.all([
         synthesize(dj.say).catch(e => { console.error('TTS 出错:', e.message); return null }),
         dj.play?.length ? resolvePlaylist(dj.play).catch(e => { console.error('搜歌出错:', e.message); return [] }) : Promise.resolve([])
       ])
-      console.log('djresponse → ttsUrl:', ttsUrl, '| songs:', songs.length)
-      broadcast({ type: 'djresponse', say: dj.say, ttsUrl, songs })
+      sendToSession(sid, { type: 'djresponse', say: dj.say, ttsUrl, songs })
     })().catch(e => console.error('后台任务出错:', e.message))
 
     res.json({ reply: dj.say })
@@ -222,8 +235,10 @@ app.get('/admin/qr/check', async (req, res) => {
   }
 })
 
-wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ type: 'now', ...state.getNowPlaying() }))
+wss.on('connection', (ws, req) => {
+  const sid = new URL(req.url, 'http://x').searchParams.get('sid') || ''
+  if (sid) sessions.set(sid, ws)
+  ws.on('close', () => { if (sid) sessions.delete(sid) })
 })
 
 const PORT = process.env.PORT || 8080

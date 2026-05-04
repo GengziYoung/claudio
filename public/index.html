@@ -550,14 +550,17 @@
   let isPlaying = false
   let ttsPlaying = false
 
-  // ── 登录状态 ────────────────────────────────────────────────
+  // ── Session & 登录状态 ──────────────────────────────────────
+  const sessionId = crypto.randomUUID()
   let ncmCookie = localStorage.getItem('ncm_cookie') || ''
   let userTaste = localStorage.getItem('ncm_taste') || ''
   let loginKey = ''
   let loginPollTimer = null
 
   function authHeaders() {
-    return ncmCookie ? { 'x-ncm-cookie': ncmCookie } : {}
+    const h = { 'x-session-id': sessionId }
+    if (ncmCookie) h['x-ncm-cookie'] = ncmCookie
+    return h
   }
 
   async function initLogin() {
@@ -627,7 +630,7 @@
   }
 
   // ── WebSocket ──────────────────────────────────────────────
-  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`)
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}?sid=${sessionId}`)
   ws.onopen  = () => { $('dot').classList.add('on'); $('status-text').textContent = 'live' }
   ws.onclose = () => { $('dot').classList.remove('on'); $('status-text').textContent = 'offline' }
   ws.onmessage = e => {
